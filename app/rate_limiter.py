@@ -1,5 +1,4 @@
 import time
-import redis
 
 
 class RateLimiter:
@@ -9,39 +8,20 @@ class RateLimiter:
         self.capacity = capacity
         self.refill_rate = refill_rate
 
+        with open("app/rate_limit.lua", "r") as file:
+            self.script = self.redis.register_script(file.read())
+
     def allow_request(self, client_id):
 
         key = f"rate_limit:{client_id}"
 
-        data = self.redis.hgetall(key)
-
-        if not data:
-            tokens = self.capacity
-            last_refill = time.time()
-        else:
-            tokens = float(data["tokens"])
-            last_refill = float(data["last_refill"])
-
-        now = time.time()
-
-        elapsed = now - last_refill
-
-        tokens = min(
-            self.capacity,
-            tokens + elapsed * self.refill_rate
+        result = self.script(
+            keys=[key],
+            args=[
+                self.capacity,
+                self.refill_rate,
+                time.time()
+            ]
         )
 
-        if tokens < 1:
-            return False
-
-        tokens -= 1
-
-        self.redis.hset(
-            key,
-            mapping={
-                "tokens": tokens,
-                "last_refill": now
-            }
-        )
-
-        return True
+        return bool(result)
